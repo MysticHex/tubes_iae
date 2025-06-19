@@ -1,0 +1,141 @@
+services:
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  database:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: perpus_db
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    ports:
+      - "3307:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  mahasiswa-service:
+    build: ./mahasiswa-service
+    environment:
+      DB_HOST: database
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: perpus_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      NODE_ENV: development
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "4001:4001"
+    volumes:
+      - ./mahasiswa-service:/app
+      - /app/node_modules
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  buku-service:
+    build: ./buku-service
+    environment:
+      DB_HOST: database
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: perpus_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      NODE_ENV: development
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "4002:4002"
+    volumes:
+      - ./buku-service:/app
+      - /app/node_modules
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  peminjaman-service:
+    build: ./peminjaman-service
+    environment:
+      DB_HOST: database
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_NAME: perpus_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MAHASISWA_SERVICE_URL: "http://mahasiswa-service:4001"
+      BUKU_SERVICE_URL: "http://buku-service:4002"
+      NODE_ENV: development
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "4003:4003"
+    volumes:
+      - ./peminjaman-service:/app
+      - /app/node_modules
+    depends_on:
+      database:
+        condition: service_healthy
+      mahasiswa-service:
+        condition: service_healthy
+      buku-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+volumes:
+  redis-data:
+  db_data:
